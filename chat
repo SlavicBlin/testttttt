@@ -1,0 +1,805 @@
+local script_name = "OutfitModeler"
+local script_version = "0.1"
+
+local PLAYER_PED_ID = 0x43A66C31C68491C0
+local GET_PED_DRAWABLE_VARIATION = 0x67F3780DD425D4FC
+local GET_PED_TEXTURE_VARIATION = 0x04A355E041E004E6
+local SET_PED_COMPONENT_VARIATION = 0x262B14F48D29DE80
+local GET_NUMBER_OF_PED_DRAWABLE_VARIATIONS = 0x27561561732A7842
+local GET_NUMBER_OF_PED_TEXTURE_VARIATIONS = 0x8F7156A3142A6BAD
+local GET_PED_PROP_INDEX = 0x898CC20EA75BACD8
+local GET_PED_PROP_TEXTURE_INDEX = 0xE131A28626F81AB2
+local SET_PED_PROP_INDEX = 0x93376B65A266EB5F
+local CLEAR_PED_PROP = 0x0943E5B8E078E76E
+local GET_NUMBER_OF_PED_PROP_DRAWABLE_VARIATIONS = 0x5FAF9754E789FB47
+local GET_NUMBER_OF_PED_PROP_TEXTURE_VARIATIONS = 0xA6E7F1CEB523E171
+local SET_PED_HAIR_COLOR = 0x4CFFC65454C93A49
+local GET_PED_HAIR_COLOR = 0xE5C0CF872C2AD150
+local SET_PED_EYE_COLOR = 0x50B56988B170AFDF
+
+local DISABLE_CONTROL_ACTION = 0xFE99B66D079CF6BC
+local DISABLE_ALL_CONTROL_ACTIONS = 0x5F4B6931816E599B
+local ENABLE_CONTROL_ACTION = 0x351220255D64C155
+local SET_CURSOR_ACTIVE_THIS_FRAME = 0x8DB8CFFD58B62552
+local SET_INPUT_EXCLUSIVE = 0xEDE476E5EE29EDB1
+
+local gui_open = false
+
+
+local hotkey_setup_mode = true
+local assigned_hotkey = nil
+local key_cooldown = 0
+
+local key_names = {
+    [0x70] = "F1", [0x71] = "F2", [0x72] = "F3", [0x73] = "F4", [0x74] = "F5",
+    [0x75] = "F6", [0x76] = "F7", [0x77] = "F8", [0x78] = "F9", [0x79] = "F10",
+    [0x7A] = "F11", [0x7B] = "F12",
+    [0x60] = "NUM0", [0x61] = "NUM1", [0x62] = "NUM2", [0x63] = "NUM3", [0x64] = "NUM4",
+    [0x65] = "NUM5", [0x66] = "NUM6", [0x67] = "NUM7", [0x68] = "NUM8", [0x69] = "NUM9",
+    [0x6B] = "NUM+", [0x6D] = "NUM-",
+    [0x24] = "HOME", [0x23] = "END", [0x2D] = "INSERT", [0x2E] = "DELETE"
+}
+
+
+local clothing_categories = {
+    {name = "Hair", id = 2},
+    {name = "Mask", id = 1},
+    {name = "Top / Jacket", id = 11},
+    {name = "Undershirt", id = 8},
+    {name = "Torso", id = 3},
+    {name = "Body Armor", id = 9},
+    {name = "Legs / Pants", id = 4},
+    {name = "Shoes", id = 6},
+    {name = "Bags / Parachute", id = 5},
+    {name = "Accessories", id = 7},
+    {name = "Decals / Logos", id = 10},
+}
+
+local prop_categories = {
+    {name = "Hat / Cap", id = 0},
+    {name = "Glasses", id = 1},
+    {name = "Earpiece", id = 2},
+    {name = "Watch", id = 6},
+    {name = "Bracelet", id = 7}
+}
+
+local main_categories = {
+    {name = "  Clothing  "},
+    {name = "  Props  "},
+    {name = "  Colors  "}
+}
+
+
+local state = {
+    main_category = 1,
+    selected_category = 1,
+    selected_drawable = 0,
+    selected_texture = 0,
+    selected_prop_drawable = 0,
+    selected_prop_texture = 0,
+    hair_color_primary = 0,
+    hair_color_secondary = 0,
+    eye_color = 0,
+    drawable_input = "0",
+    prop_drawable_input = "0",
+    original_outfit = {},
+    original_props = {},
+    original_colors = {},
+    current_outfit = {},
+    current_props = {}
+}
+
+local colors = {
+    bg = {0.08, 0.08, 0.12, 0.97},
+    border = {0.4, 0.2, 0.6, 0.5},
+    
+    tab_active = {0.55, 0.25, 0.75, 1.0},
+    tab_inactive = {0.2, 0.15, 0.25, 0.9},
+    tab_hover = {0.45, 0.2, 0.6, 1.0},
+    
+    cat_bg = {0.1, 0.1, 0.15, 0.95},
+    cat_selected = {0.5, 0.25, 0.7, 0.9},
+    cat_hover = {0.35, 0.2, 0.5, 0.8},
+    
+    btn_normal = {0.18, 0.12, 0.28, 1.0},
+    btn_hover = {0.28, 0.18, 0.42, 1.0},
+    btn_equipped = {0.15, 0.55, 0.25, 1.0},
+    btn_equipped_hover = {0.2, 0.65, 0.3, 1.0},
+    
+    save_btn = {0.2, 0.6, 0.3, 1.0},
+    save_hover = {0.25, 0.7, 0.35, 1.0},
+    cancel_btn = {0.65, 0.2, 0.2, 1.0},
+    cancel_hover = {0.75, 0.25, 0.25, 1.0},
+    reset_btn = {0.5, 0.35, 0.15, 1.0},
+    reset_hover = {0.6, 0.45, 0.2, 1.0},
+    remove_btn = {0.6, 0.15, 0.15, 1.0},
+    
+    title = {1.0, 0.85, 0.4, 1.0},
+    subtitle = {0.7, 0.5, 0.9, 1.0},
+    text = {0.9, 0.9, 0.9, 1.0},
+    text_dim = {0.5, 0.5, 0.55, 1.0},
+    
+    slider_bg = {0.15, 0.1, 0.2, 1.0},
+    slider_grab = {0.6, 0.35, 0.8, 1.0},
+    slider_grab_active = {0.7, 0.45, 0.9, 1.0}
+}
+
+
+local function GetPed()
+    return Natives.InvokeInt(PLAYER_PED_ID)
+end
+
+local function GetDrawableCount(cid)
+    local ped = GetPed()
+    if ped == 0 then return 0 end
+    return Natives.InvokeInt(GET_NUMBER_OF_PED_DRAWABLE_VARIATIONS, ped, cid)
+end
+
+local function GetTextureCount(cid, d)
+    local ped = GetPed()
+    if ped == 0 then return 0 end
+    local c = Natives.InvokeInt(GET_NUMBER_OF_PED_TEXTURE_VARIATIONS, ped, cid, d)
+    if type(c) ~= "number" then return 0 end
+    return c
+end
+
+local function GetPropDrawableCount(pid)
+    local ped = GetPed()
+    if ped == 0 then return 0 end
+    return Natives.InvokeInt(GET_NUMBER_OF_PED_PROP_DRAWABLE_VARIATIONS, ped, pid)
+end
+
+local function GetPropTextureCount(pid, d)
+    local ped = GetPed()
+    if ped == 0 then return 0 end
+    local c = Natives.InvokeInt(GET_NUMBER_OF_PED_PROP_TEXTURE_VARIATIONS, ped, pid, d)
+    if type(c) ~= "number" then return 0 end
+    return c
+end
+
+local function DetectKey()
+    for vk, name in pairs(key_names) do
+        if Utils.IsKeyPressed(vk) then
+            return vk, name
+        end
+    end
+    return nil, nil
+end
+
+local function ShowCursorThisFrame()
+    Natives.InvokeVoid(SET_CURSOR_ACTIVE_THIS_FRAME)
+end
+
+local function DisableCameraControls()
+    Natives.InvokeVoid(DISABLE_CONTROL_ACTION, 0, 1, true)  -- Look LR
+    Natives.InvokeVoid(DISABLE_CONTROL_ACTION, 0, 2, true)  -- Look UD
+    Natives.InvokeVoid(DISABLE_CONTROL_ACTION, 0, 25, true) -- Input Aim
+end
+
+
+local function ApplyClothing(cid, d, t)
+    local ped = GetPed()
+    if ped == 0 then return end
+    Natives.InvokeVoid(SET_PED_COMPONENT_VARIATION, ped, cid, d, t, 0)
+    state.current_outfit[cid] = {drawable = d, texture = t}
+end
+
+local function ApplyProp(pid, d, t)
+    local ped = GetPed()
+    if ped == 0 then return end
+    if d == -1 then
+        Natives.InvokeVoid(CLEAR_PED_PROP, ped, pid)
+    else
+        Natives.InvokeVoid(SET_PED_PROP_INDEX, ped, pid, d, t, true)
+    end
+    state.current_props[pid] = {drawable = d, texture = t}
+end
+
+local function ApplyColors()
+    local ped = GetPed()
+    if ped == 0 then return end
+    Natives.InvokeVoid(SET_PED_HAIR_COLOR, ped, state.hair_color_primary, state.hair_color_secondary)
+    Natives.InvokeVoid(SET_PED_EYE_COLOR, ped, state.eye_color)
+end
+
+
+local function SaveCurrentState()
+    local ped = GetPed()
+    if ped == 0 then return end
+    
+    state.original_outfit = {}
+    state.current_outfit = {}
+    for _, cat in ipairs(clothing_categories) do
+        local d = Natives.InvokeInt(GET_PED_DRAWABLE_VARIATION, ped, cat.id)
+        local t = Natives.InvokeInt(GET_PED_TEXTURE_VARIATION, ped, cat.id)
+        state.original_outfit[cat.id] = {drawable = d, texture = t}
+        state.current_outfit[cat.id] = {drawable = d, texture = t}
+    end
+    
+    state.original_props = {}
+    state.current_props = {}
+    for _, prop in ipairs(prop_categories) do
+        local d = Natives.InvokeInt(GET_PED_PROP_INDEX, ped, prop.id)
+        local t = Natives.InvokeInt(GET_PED_PROP_TEXTURE_INDEX, ped, prop.id)
+        state.original_props[prop.id] = {drawable = d, texture = t}
+        state.current_props[prop.id] = {drawable = d, texture = t}
+    end
+    
+    local hc = Natives.InvokeInt(GET_PED_HAIR_COLOR, ped)
+    state.original_colors = {hair_primary = hc, hair_secondary = 0, eye = 0}
+    state.hair_color_primary = hc
+    state.hair_color_secondary = 0
+    state.eye_color = 0
+end
+
+local function CancelAllChanges()
+    local ped = GetPed()
+    if ped == 0 then return end
+    
+    for cid, data in pairs(state.original_outfit) do
+        Natives.InvokeVoid(SET_PED_COMPONENT_VARIATION, ped, cid, data.drawable, data.texture, 0)
+        state.current_outfit[cid] = {drawable = data.drawable, texture = data.texture}
+    end
+    
+    for pid, data in pairs(state.original_props) do
+        if data.drawable == -1 then
+            Natives.InvokeVoid(CLEAR_PED_PROP, ped, pid)
+        else
+            Natives.InvokeVoid(SET_PED_PROP_INDEX, ped, pid, data.drawable, data.texture, true)
+        end
+        state.current_props[pid] = {drawable = data.drawable, texture = data.texture}
+    end
+    
+    Natives.InvokeVoid(SET_PED_HAIR_COLOR, ped, state.original_colors.hair_primary, state.original_colors.hair_secondary)
+    Natives.InvokeVoid(SET_PED_EYE_COLOR, ped, state.original_colors.eye)
+    
+    state.hair_color_primary = state.original_colors.hair_primary
+    state.hair_color_secondary = state.original_colors.hair_secondary
+    state.eye_color = state.original_colors.eye
+    
+    local cat = clothing_categories[state.selected_category]
+    if cat and state.current_outfit[cat.id] then
+        state.selected_drawable = state.current_outfit[cat.id].drawable
+        state.selected_texture = state.current_outfit[cat.id].texture
+        state.drawable_input = tostring(state.selected_drawable)
+    end
+    
+    GUI.AddToast("Cancelled", "Original outfit restored!", 2000, eToastPos.BOTTOM_RIGHT)
+end
+
+local function SaveAllChanges()
+    for cid, data in pairs(state.current_outfit) do
+        state.original_outfit[cid] = {drawable = data.drawable, texture = data.texture}
+    end
+    for pid, data in pairs(state.current_props) do
+        state.original_props[pid] = {drawable = data.drawable, texture = data.texture}
+    end
+    state.original_colors = {
+        hair_primary = state.hair_color_primary,
+        hair_secondary = state.hair_color_secondary,
+        eye = state.eye_color
+    }
+    GUI.AddToast("Saved", "Outfit saved!", 2000, eToastPos.BOTTOM_RIGHT)
+end
+
+local function ResetClothing(cid)
+    local data = state.original_outfit[cid]
+    if data then
+        ApplyClothing(cid, data.drawable, data.texture)
+        state.selected_drawable = data.drawable
+        state.selected_texture = data.texture
+        state.drawable_input = tostring(data.drawable)
+        GUI.AddToast("Reset", "Category restored!", 1500, eToastPos.BOTTOM_RIGHT)
+    end
+end
+
+local function ResetProp(pid)
+    local data = state.original_props[pid]
+    if data then
+        ApplyProp(pid, data.drawable, data.texture)
+        state.selected_prop_drawable = data.drawable
+        state.selected_prop_texture = data.texture
+        state.prop_drawable_input = tostring(data.drawable)
+        GUI.AddToast("Reset", "Prop restored!", 1500, eToastPos.BOTTOM_RIGHT)
+    end
+end
+
+local function ResetColors()
+    state.hair_color_primary = state.original_colors.hair_primary
+    state.hair_color_secondary = state.original_colors.hair_secondary
+    state.eye_color = state.original_colors.eye
+    ApplyColors()
+    GUI.AddToast("Reset", "Colors restored!", 1500, eToastPos.BOTTOM_RIGHT)
+end
+
+
+local function RenderHotkeySetup()
+    local dw, dh = ImGui.GetDisplaySize()
+    ImGui.SetNextWindowPos(dw/2 - 220, dh/2 - 100, ImGuiCond.Always)
+    ImGui.SetNextWindowSize(330,200, ImGuiCond.Always)
+    
+    ImGui.PushStyleVar(ImGuiStyleVar.WindowRounding, 15.0)
+    ImGui.PushStyleVar(ImGuiStyleVar.WindowBorderSize, 2.0)
+    ImGui.PushStyleColor(ImGuiCol.WindowBg, colors.bg[1], colors.bg[2], colors.bg[3], colors.bg[4])
+    ImGui.PushStyleColor(ImGuiCol.Border, colors.border[1], colors.border[2], colors.border[3], colors.border[4])
+    
+    ImGui.Begin("OutfitModeler - Setup", true, ImGuiWindowFlags.NoResize + ImGuiWindowFlags.NoCollapse + ImGuiWindowFlags.NoMove)
+    
+    ImGui.Spacing()
+    ImGui.SetCursorPosX(135)
+    ImGui.TextColored(colors.title[1], colors.title[2], colors.title[3], colors.title[4], "OutfitModeler")
+    ImGui.Spacing()
+    ImGui.Separator()
+    ImGui.Spacing()
+    ImGui.SetCursorPosX(70)
+    ImGui.Text("Choose a hotkey to open/close the menu")
+    ImGui.Spacing()
+    ImGui.Spacing()
+    ImGui.SetCursorPosX(50)
+    ImGui.TextColored(0.3, 0.9, 0.4, 1.0, ">>> Press a key (F1-F12, NUM+, HOME...) <<<")
+    ImGui.Spacing()
+    ImGui.SetCursorPosX(90)
+    ImGui.TextColored(colors.text_dim[1], colors.text_dim[2], colors.text_dim[3], colors.text_dim[4], "Recommended: F5, F6, NUM+")
+    
+    local vk, name = DetectKey()
+    if vk then
+        assigned_hotkey = vk
+        hotkey_setup_mode = false
+        key_cooldown = 25
+        GUI.AddToast("OutfitModeler", "Hotkey set to " .. name, 3000, eToastPos.TOP_RIGHT)
+    end
+    
+    ImGui.End()
+    ImGui.PopStyleColor(2)
+    ImGui.PopStyleVar(2)
+end
+
+
+local function PushStyle()
+    ImGui.PushStyleVar(ImGuiStyleVar.WindowRounding, 12.0)
+    ImGui.PushStyleVar(ImGuiStyleVar.FrameRounding, 8.0)
+    ImGui.PushStyleVar(ImGuiStyleVar.ChildRounding, 10.0)
+    ImGui.PushStyleVar(ImGuiStyleVar.WindowBorderSize, 1.0)
+    ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, 8, 6)
+    ImGui.PushStyleVar(ImGuiStyleVar.ItemSpacing, 10, 8)
+    
+    ImGui.PushStyleColor(ImGuiCol.WindowBg, colors.bg[1], colors.bg[2], colors.bg[3], colors.bg[4])
+    ImGui.PushStyleColor(ImGuiCol.Border, colors.border[1], colors.border[2], colors.border[3], colors.border[4])
+    ImGui.PushStyleColor(ImGuiCol.ChildBg, colors.cat_bg[1], colors.cat_bg[2], colors.cat_bg[3], colors.cat_bg[4])
+    ImGui.PushStyleColor(ImGuiCol.FrameBg, colors.slider_bg[1], colors.slider_bg[2], colors.slider_bg[3], colors.slider_bg[4])
+    ImGui.PushStyleColor(ImGuiCol.SliderGrab, colors.slider_grab[1], colors.slider_grab[2], colors.slider_grab[3], colors.slider_grab[4])
+    ImGui.PushStyleColor(ImGuiCol.SliderGrabActive, colors.slider_grab_active[1], colors.slider_grab_active[2], colors.slider_grab_active[3], colors.slider_grab_active[4])
+    ImGui.PushStyleColor(ImGuiCol.Header, colors.cat_selected[1], colors.cat_selected[2], colors.cat_selected[3], colors.cat_selected[4])
+    ImGui.PushStyleColor(ImGuiCol.HeaderHovered, colors.cat_hover[1], colors.cat_hover[2], colors.cat_hover[3], colors.cat_hover[4])
+    ImGui.PushStyleColor(ImGuiCol.HeaderActive, colors.cat_selected[1], colors.cat_selected[2], colors.cat_selected[3], colors.cat_selected[4])
+end
+
+local function PopStyle()
+    ImGui.PopStyleColor(9)
+    ImGui.PopStyleVar(6)
+end
+
+
+local function RenderMainGUI()
+    if gui_open == false then
+        return
+    end
+    
+    ShowCursorThisFrame()
+    DisableCameraControls()
+    
+    ImGui.SetNextWindowSize(780, 720, ImGuiCond.FirstUseEver)
+    ImGui.SetNextWindowPos(50, 50, ImGuiCond.FirstUseEver)
+    
+    PushStyle()
+    
+    ImGui.Begin(script_name .. " v" .. script_version, true, ImGuiWindowFlags.NoCollapse)
+    
+    local ww, wh = ImGui.GetWindowSize()
+    ImGui.BeginChild("TopNav", ww - 16, 50, true)
+    local tw = (ww - 50) / 3
+    for i, cat in ipairs(main_categories) do
+        if i > 1 then ImGui.SameLine() end
+        
+        if state.main_category == i then
+            ImGui.PushStyleColor(ImGuiCol.Button, colors.tab_active[1], colors.tab_active[2], colors.tab_active[3], colors.tab_active[4])
+            ImGui.PushStyleColor(ImGuiCol.ButtonHovered, colors.tab_active[1], colors.tab_active[2], colors.tab_active[3], colors.tab_active[4])
+        else
+            ImGui.PushStyleColor(ImGuiCol.Button, colors.tab_inactive[1], colors.tab_inactive[2], colors.tab_inactive[3], colors.tab_inactive[4])
+            ImGui.PushStyleColor(ImGuiCol.ButtonHovered, colors.tab_hover[1], colors.tab_hover[2], colors.tab_hover[3], colors.tab_hover[4])
+        end
+        
+        if ImGui.Button(cat.name, tw, 38) then
+            state.main_category = i
+            state.selected_category = 1
+            
+            if i == 1 then
+                local c = clothing_categories[1]
+                if c and state.current_outfit[c.id] then
+                    state.selected_drawable = state.current_outfit[c.id].drawable
+                    state.selected_texture = state.current_outfit[c.id].texture
+                    state.drawable_input = tostring(state.selected_drawable)
+                end
+            elseif i == 2 then
+                local p = prop_categories[1]
+                if p and state.current_props[p.id] then
+                    state.selected_prop_drawable = state.current_props[p.id].drawable
+                    state.selected_prop_texture = state.current_props[p.id].texture
+                    state.prop_drawable_input = tostring(state.selected_prop_drawable)
+                end
+            end
+        end
+        ImGui.PopStyleColor(2)
+    end
+    ImGui.EndChild()
+    
+    ImGui.Spacing()
+    
+    ImGui.BeginChild("CatList", 170, wh - 200, true)
+    ImGui.TextColored(colors.subtitle[1], colors.subtitle[2], colors.subtitle[3], colors.subtitle[4], "  Categories")
+    ImGui.Separator()
+    ImGui.Spacing()
+    
+    local cats = {}
+    if state.main_category == 1 then
+        cats = clothing_categories
+    elseif state.main_category == 2 then
+        cats = prop_categories
+    end
+    
+    for i, cat in ipairs(cats) do
+        local display = " " .. cat.name
+        if ImGui.Selectable(display, state.selected_category == i) then
+            state.selected_category = i
+            
+            if state.main_category == 1 and state.current_outfit[cat.id] then
+                state.selected_drawable = state.current_outfit[cat.id].drawable
+                state.selected_texture = state.current_outfit[cat.id].texture
+                state.drawable_input = tostring(state.selected_drawable)
+            elseif state.main_category == 2 and state.current_props[cat.id] then
+                state.selected_prop_drawable = state.current_props[cat.id].drawable
+                state.selected_prop_texture = state.current_props[cat.id].texture
+                state.prop_drawable_input = tostring(state.selected_prop_drawable)
+            end
+        end
+    end
+    ImGui.EndChild()
+    
+    ImGui.SameLine()
+    
+    local rightW = ww - 205
+    local rightH = wh - 200
+    ImGui.BeginChild("Controls", rightW, rightH, true)
+    
+    if state.main_category == 1 then
+        local cat = clothing_categories[state.selected_category]
+        if cat then
+            local max_d = GetDrawableCount(cat.id)
+            if max_d < 1 then max_d = 1 end
+            
+            ImGui.TextColored(colors.title[1], colors.title[2], colors.title[3], colors.title[4], cat.name)
+            ImGui.SameLine()
+            ImGui.SetCursorPosX(rightW - 85)
+            ImGui.PushStyleColor(ImGuiCol.Button, colors.reset_btn[1], colors.reset_btn[2], colors.reset_btn[3], colors.reset_btn[4])
+            ImGui.PushStyleColor(ImGuiCol.ButtonHovered, colors.reset_hover[1], colors.reset_hover[2], colors.reset_hover[3], colors.reset_hover[4])
+            if ImGui.Button("Reset", 70, 26) then
+                ResetClothing(cat.id)
+            end
+            ImGui.PopStyleColor(2)
+            
+            ImGui.TextColored(colors.text_dim[1], colors.text_dim[2], colors.text_dim[3], colors.text_dim[4], max_d .. " models available")
+            ImGui.Separator()
+            ImGui.Spacing()
+            
+            ImGui.Text("Model")
+            ImGui.SameLine()
+            ImGui.PushItemWidth(140)
+            local old_d = state.selected_drawable
+            state.selected_drawable = ImGui.SliderInt("##drawable", state.selected_drawable, 0, max_d - 1, "%d")
+            if old_d ~= state.selected_drawable then
+                state.selected_texture = 0
+                state.drawable_input = tostring(state.selected_drawable)
+                ApplyClothing(cat.id, state.selected_drawable, state.selected_texture)
+            end
+            ImGui.PopItemWidth()
+            ImGui.SameLine()
+            ImGui.PushItemWidth(55)
+            local new_inp = ImGui.InputText("##dinput", state.drawable_input, 8)
+            if new_inp ~= state.drawable_input then
+                state.drawable_input = new_inp
+                local n = tonumber(new_inp)
+                if n then
+                    n = math.floor(math.max(0, math.min(n, max_d - 1)))
+                    if n ~= state.selected_drawable then
+                        state.selected_drawable = n
+                        state.selected_texture = 0
+                        ApplyClothing(cat.id, n, 0)
+                    end
+                end
+            end
+            ImGui.PopItemWidth()
+            
+            local max_t = GetTextureCount(cat.id, state.selected_drawable)
+            if max_t < 1 then max_t = 1 end
+            ImGui.Text("Texture")
+            ImGui.SameLine()
+            ImGui.PushItemWidth(195)
+            local old_t = state.selected_texture
+            state.selected_texture = ImGui.SliderInt("##texture", state.selected_texture, 0, max_t - 1, "%d")
+            if old_t ~= state.selected_texture then
+                ApplyClothing(cat.id, state.selected_drawable, state.selected_texture)
+            end
+            ImGui.PopItemWidth()
+            
+            ImGui.Spacing()
+            ImGui.Separator()
+            ImGui.Spacing()
+            ImGui.TextColored(colors.subtitle[1], colors.subtitle[2], colors.subtitle[3], colors.subtitle[4], "Quick Select")
+            ImGui.Spacing()
+            
+            ImGui.BeginChild("ClothingGrid", rightW - 20, rightH - 155, true)
+            
+            local cols = 3
+            local btn_w = (rightW - 55) / cols
+            local btn_h = 50
+            
+            for i = 0, max_d - 1 do
+                local is_eq = (state.selected_drawable == i)
+                
+                if is_eq then
+                    ImGui.PushStyleColor(ImGuiCol.Button, colors.btn_equipped[1], colors.btn_equipped[2], colors.btn_equipped[3], colors.btn_equipped[4])
+                    ImGui.PushStyleColor(ImGuiCol.ButtonHovered, colors.btn_equipped_hover[1], colors.btn_equipped_hover[2], colors.btn_equipped_hover[3], colors.btn_equipped_hover[4])
+                else
+                    ImGui.PushStyleColor(ImGuiCol.Button, colors.btn_normal[1], colors.btn_normal[2], colors.btn_normal[3], colors.btn_normal[4])
+                    ImGui.PushStyleColor(ImGuiCol.ButtonHovered, colors.btn_hover[1], colors.btn_hover[2], colors.btn_hover[3], colors.btn_hover[4])
+                end
+                
+                local lbl = is_eq and "[ " .. i .. " ]" or "Model " .. i
+                
+                if ImGui.Button(lbl, btn_w - 8, btn_h) then
+                    state.selected_drawable = i
+                    state.selected_texture = 0
+                    state.drawable_input = tostring(i)
+                    ApplyClothing(cat.id, i, 0)
+                end
+                
+                ImGui.PopStyleColor(2)
+                
+                if (i + 1) % cols ~= 0 and i < max_d - 1 then
+                    ImGui.SameLine()
+                end
+            end
+            
+            ImGui.EndChild()
+        end
+        
+    elseif state.main_category == 2 then
+        local prop = prop_categories[state.selected_category]
+        if prop then
+            local max_d = GetPropDrawableCount(prop.id)
+            
+            ImGui.TextColored(colors.title[1], colors.title[2], colors.title[3], colors.title[4], prop.name)
+            ImGui.SameLine()
+            ImGui.SetCursorPosX(rightW - 160)
+            ImGui.PushStyleColor(ImGuiCol.Button, colors.reset_btn[1], colors.reset_btn[2], colors.reset_btn[3], colors.reset_btn[4])
+            ImGui.PushStyleColor(ImGuiCol.ButtonHovered, colors.reset_hover[1], colors.reset_hover[2], colors.reset_hover[3], colors.reset_hover[4])
+            if ImGui.Button("Reset", 65, 26) then
+                ResetProp(prop.id)
+            end
+            ImGui.PopStyleColor(2)
+            ImGui.SameLine()
+            ImGui.PushStyleColor(ImGuiCol.Button, colors.remove_btn[1], colors.remove_btn[2], colors.remove_btn[3], colors.remove_btn[4])
+            ImGui.PushStyleColor(ImGuiCol.ButtonHovered, colors.cancel_hover[1], colors.cancel_hover[2], colors.cancel_hover[3], colors.cancel_hover[4])
+            if ImGui.Button("Remove", 70, 26) then
+                ApplyProp(prop.id, -1, 0)
+                state.selected_prop_drawable = -1
+                state.prop_drawable_input = "-1"
+            end
+            ImGui.PopStyleColor(2)
+            
+            ImGui.TextColored(colors.text_dim[1], colors.text_dim[2], colors.text_dim[3], colors.text_dim[4], max_d .. " models available")
+            ImGui.Separator()
+            ImGui.Spacing()
+            
+            if max_d > 0 then
+                ImGui.Text("Model")
+                ImGui.SameLine()
+                ImGui.PushItemWidth(140)
+                local old_d = state.selected_prop_drawable
+                state.selected_prop_drawable = ImGui.SliderInt("##pdrawable", state.selected_prop_drawable, 0, max_d - 1, "%d")
+                if old_d ~= state.selected_prop_drawable then
+                    state.selected_prop_texture = 0
+                    state.prop_drawable_input = tostring(state.selected_prop_drawable)
+                    ApplyProp(prop.id, state.selected_prop_drawable, state.selected_prop_texture)
+                end
+                ImGui.PopItemWidth()
+                ImGui.SameLine()
+                ImGui.PushItemWidth(55)
+                local new_inp = ImGui.InputText("##pinput", state.prop_drawable_input, 8)
+                if new_inp ~= state.prop_drawable_input then
+                    state.prop_drawable_input = new_inp
+                    local n = tonumber(new_inp)
+                    if n then
+                        n = math.floor(math.max(0, math.min(n, max_d - 1)))
+                        if n ~= state.selected_prop_drawable then
+                            state.selected_prop_drawable = n
+                            state.selected_prop_texture = 0
+                            ApplyProp(prop.id, n, 0)
+                        end
+                    end
+                end
+                ImGui.PopItemWidth()
+                
+                local max_t = GetPropTextureCount(prop.id, state.selected_prop_drawable)
+                if max_t < 1 then max_t = 1 end
+                ImGui.Text("Texture")
+                ImGui.SameLine()
+                ImGui.PushItemWidth(195)
+                local old_t = state.selected_prop_texture
+                state.selected_prop_texture = ImGui.SliderInt("##ptexture", state.selected_prop_texture, 0, max_t - 1, "%d")
+                if old_t ~= state.selected_prop_texture then
+                    ApplyProp(prop.id, state.selected_prop_drawable, state.selected_prop_texture)
+                end
+                ImGui.PopItemWidth()
+                
+                ImGui.Spacing()
+                ImGui.Separator()
+                ImGui.Spacing()
+                ImGui.TextColored(colors.subtitle[1], colors.subtitle[2], colors.subtitle[3], colors.subtitle[4], "Quick Select")
+                ImGui.Spacing()
+                
+                ImGui.BeginChild("PropGrid", rightW - 20, rightH - 155, true)
+                
+                local cols = 3
+                local btn_w = (rightW - 55) / cols
+                local btn_h = 50
+                
+                for i = 0, max_d - 1 do
+                    local is_eq = (state.selected_prop_drawable == i)
+                    
+                    if is_eq then
+                        ImGui.PushStyleColor(ImGuiCol.Button, colors.btn_equipped[1], colors.btn_equipped[2], colors.btn_equipped[3], colors.btn_equipped[4])
+                        ImGui.PushStyleColor(ImGuiCol.ButtonHovered, colors.btn_equipped_hover[1], colors.btn_equipped_hover[2], colors.btn_equipped_hover[3], colors.btn_equipped_hover[4])
+                    else
+                        ImGui.PushStyleColor(ImGuiCol.Button, colors.btn_normal[1], colors.btn_normal[2], colors.btn_normal[3], colors.btn_normal[4])
+                        ImGui.PushStyleColor(ImGuiCol.ButtonHovered, colors.btn_hover[1], colors.btn_hover[2], colors.btn_hover[3], colors.btn_hover[4])
+                    end
+                    
+                    local lbl = is_eq and "[ " .. i .. " ]" or "Model " .. i
+                    
+                    if ImGui.Button(lbl, btn_w - 8, btn_h) then
+                        state.selected_prop_drawable = i
+                        state.selected_prop_texture = 0
+                        state.prop_drawable_input = tostring(i)
+                        ApplyProp(prop.id, i, 0)
+                    end
+                    
+                    ImGui.PopStyleColor(2)
+                    
+                    if (i + 1) % cols ~= 0 and i < max_d - 1 then
+                        ImGui.SameLine()
+                    end
+                end
+                
+                ImGui.EndChild()
+            else
+                ImGui.Spacing()
+                ImGui.TextColored(1.0, 0.5, 0.5, 1.0, "No props available for this category")
+            end
+        end
+        
+    else
+        ImGui.TextColored(colors.title[1], colors.title[2], colors.title[3], colors.title[4], "Character Colors")
+        ImGui.SameLine()
+        ImGui.SetCursorPosX(rightW - 85)
+        ImGui.PushStyleColor(ImGuiCol.Button, colors.reset_btn[1], colors.reset_btn[2], colors.reset_btn[3], colors.reset_btn[4])
+        ImGui.PushStyleColor(ImGuiCol.ButtonHovered, colors.reset_hover[1], colors.reset_hover[2], colors.reset_hover[3], colors.reset_hover[4])
+        if ImGui.Button("Reset", 70, 26) then
+            ResetColors()
+        end
+        ImGui.PopStyleColor(2)
+        ImGui.Separator()
+        ImGui.Spacing()
+        ImGui.Spacing()
+        
+        ImGui.TextColored(colors.subtitle[1], colors.subtitle[2], colors.subtitle[3], colors.subtitle[4], "Hair Color - Primary")
+        ImGui.PushItemWidth(rightW - 30)
+        local old_hp = state.hair_color_primary
+        state.hair_color_primary = ImGui.SliderInt("##hairp", state.hair_color_primary, 0, 63, "%d")
+        if old_hp ~= state.hair_color_primary then
+            ApplyColors()
+        end
+        ImGui.PopItemWidth()
+        
+        ImGui.Spacing()
+        ImGui.Spacing()
+        
+        ImGui.TextColored(colors.subtitle[1], colors.subtitle[2], colors.subtitle[3], colors.subtitle[4], "Hair Color - Secondary (Highlights)")
+        ImGui.PushItemWidth(rightW - 30)
+        local old_hs = state.hair_color_secondary
+        state.hair_color_secondary = ImGui.SliderInt("##hairs", state.hair_color_secondary, 0, 63, "%d")
+        if old_hs ~= state.hair_color_secondary then
+            ApplyColors()
+        end
+        ImGui.PopItemWidth()
+        
+        ImGui.Spacing()
+        ImGui.Spacing()
+        
+        ImGui.TextColored(colors.subtitle[1], colors.subtitle[2], colors.subtitle[3], colors.subtitle[4], "Eye Color")
+        ImGui.PushItemWidth(rightW - 30)
+        local old_e = state.eye_color
+        state.eye_color = ImGui.SliderInt("##eyec", state.eye_color, 0, 31, "%d")
+        if old_e ~= state.eye_color then
+            ApplyColors()
+        end
+        ImGui.PopItemWidth()
+    end
+    
+    ImGui.EndChild()
+    
+    ImGui.Spacing()
+    ImGui.Separator()
+    ImGui.Spacing()
+    
+    ImGui.PushStyleColor(ImGuiCol.Button, colors.save_btn[1], colors.save_btn[2], colors.save_btn[3], colors.save_btn[4])
+    ImGui.PushStyleColor(ImGuiCol.ButtonHovered, colors.save_hover[1], colors.save_hover[2], colors.save_hover[3], colors.save_hover[4])
+    if ImGui.Button("  Save Outfit  ", 150, 40) then
+        SaveAllChanges()
+    end
+    ImGui.PopStyleColor(2)
+    
+    ImGui.SameLine()
+    
+    ImGui.PushStyleColor(ImGuiCol.Button, colors.cancel_btn[1], colors.cancel_btn[2], colors.cancel_btn[3], colors.cancel_btn[4])
+    ImGui.PushStyleColor(ImGuiCol.ButtonHovered, colors.cancel_hover[1], colors.cancel_hover[2], colors.cancel_hover[3], colors.cancel_hover[4])
+    if ImGui.Button("  Cancel All  ", 150, 40) then
+        CancelAllChanges()
+    end
+    ImGui.PopStyleColor(2)
+    
+    ImGui.SameLine()
+    ImGui.SetCursorPosX(ww - 175)
+    ImGui.TextColored(colors.text_dim[1], colors.text_dim[2], colors.text_dim[3], colors.text_dim[4], "Made by Weyzox & IA")
+    
+    ImGui.End()
+    PopStyle()
+end
+
+
+local function OnRender()
+    if hotkey_setup_mode then
+        RenderHotkeySetup()
+        return
+    end
+    
+    if key_cooldown > 0 then
+        key_cooldown = key_cooldown - 1
+    end
+    
+    if assigned_hotkey and key_cooldown == 0 and Utils.IsKeyPressed(assigned_hotkey) then
+        gui_open = not gui_open
+        key_cooldown = 20
+        
+        if gui_open then
+            SaveCurrentState()
+            
+            local c = clothing_categories[1]
+            if c and state.current_outfit[c.id] then
+                state.selected_drawable = state.current_outfit[c.id].drawable
+                state.selected_texture = state.current_outfit[c.id].texture
+                state.drawable_input = tostring(state.selected_drawable)
+            end
+        end
+    end
+    
+    RenderMainGUI()
+end
+
+local handler = EventMgr.RegisterHandler(eLuaEvent.ON_PRESENT, OnRender)
+
+GUI.AddToast("OutfitModeler", "Press any key to set hotkey", 4000, eToastPos.TOP_RIGHT)
+
+EventMgr.RegisterHandler(eLuaEvent.ON_UNLOAD, function()
+    EventMgr.RemoveHandler(handler)
+end)
